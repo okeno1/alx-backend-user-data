@@ -1,46 +1,54 @@
 #!/usr/bin/env python3
-""" Module of Users views
 """
+view that handles all routes for the Session authentication.
+"""
+
 import os
-from flask import jsonify, request
 from api.v1.views import app_views
+from flask import jsonify, abort, request
 from models.user import User
 
 
-@app_views.route('/auth_session/login', methods=['POST'], strict_slashes=False)
-def auth_session():
+@app_views.route('/auth_session/login', methods=['POST'],
+                 strict_slashes=False)
+def login():
     """
-    Handle user login
-    Return:
-        dictionary representation of user if found else error message
+    implements user login
     """
-    email = request.form.get('email')
-    password = request.form.get('password')
-    if email is None or email == '':
+    password = request.form.get('password', None)
+    email = request.form.get('email', None)
+
+    if email is None:
         return jsonify({"error": "email missing"}), 400
-    if password is None or password == '':
+    if password is None:
         return jsonify({"error": "password missing"}), 400
-    users = User.search({"email": email})
-    if not users or users == []:
+
+    # User.load_from_file()
+    user_exist = User.search({'email': email})
+    if not user_exist:
         return jsonify({"error": "no user found for this email"}), 404
-    for user in users:
-        if user.is_valid_password(password):
+
+    for user in user_exist:
+        if user.is_valid_password(password) is False:
+            return jsonify({"error": "wrong password"}), 401
+        try:
             from api.v1.app import auth
             session_id = auth.create_session(user.id)
-            resp = jsonify(user.to_json())
-            session_name = os.getenv('SESSION_NAME')
-            resp.set_cookie(session_name, session_id)
-            return resp
-    return jsonify({"error": "wrong password"}), 401
+            response = jsonify(user.to_json())
+            response.set_cookie(os.getenv('SESSION_NAME'), session_id)
+            return response
+        except Exception:
+            return jsonify({"error": "no user found for this email"}), 404
 
 
 @app_views.route('/auth_session/logout', methods=['DELETE'],
                  strict_slashes=False)
-def handle_logout():
+def logout():
     """
-    Handle user logout
+    Logout
     """
     from api.v1.app import auth
-    if auth.destroy_session(request):
-        return jsonify({}), 200
-    abort(404)
+    if not auth.destroy_session(request):
+        abort(404)
+    auth.destroy_session(request)
+    return jsonify({}), 200
